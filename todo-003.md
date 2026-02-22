@@ -1,6 +1,6 @@
 # PROJECT ORION — TECHNICAL TODO
 *Last Updated: 2026-02-22*
-*Version: 003*
+*Version: 003.1*
 
 ---
 
