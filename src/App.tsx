@@ -17,6 +17,9 @@ export default function App() {
   const [isFiring, setIsFiring] = useState(false);
   const [moveMode, setMoveMode] = useState<'AUTO' | 'MANUAL' | 'SEMI'>('MANUAL');
   const [resetMoveTrigger, setResetMoveTrigger] = useState(0);
+  // P0-B: incrementing this remounts <GameCanvas> via React key prop,
+  // reinitializing all game refs without a full page reload.
+  const [sessionKey, setSessionKey] = useState(0);
 
   useEffect(() => {
     const checkMobile = () => {
@@ -27,12 +30,19 @@ export default function App() {
     };
     checkMobile();
     window.addEventListener('resize', checkMobile);
-    // SW registration is handled by main.tsx via vite-plugin-pwa — do not duplicate here.
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
   const handleStartGame = () => {
     setGameStarted(true);
+  };
+
+  // P0-B: replaces both window.location.reload() calls.
+  // Clears stale gameState from last session so HUD doesn't flash
+  // a dead state, then remounts GameCanvas via key increment.
+  const handleRestart = () => {
+    setGameState(null);
+    setSessionKey(k => k + 1);
   };
 
   return (
@@ -116,7 +126,10 @@ export default function App() {
               <div className="flex flex-col h-full w-full bg-black relative">
                 {/* Full Screen Viewport Background */}
                 <div className="absolute inset-0 z-0">
-                  <GameCanvas 
+                  {/* P0-B: key={sessionKey} remounts GameCanvas on restart,
+                      reinitializing all refs cleanly without page reload */}
+                  <GameCanvas
+                    key={sessionKey}
                     onStateUpdate={setGameState} 
                     moveVector={moveVector}
                     aimVector={aimVector}
@@ -214,8 +227,9 @@ export default function App() {
                       <div className="hardware-panel p-6 text-center space-y-4 border-red-500">
                         <h2 className="text-2xl font-display text-red-500 neon-text">MISSION FAILED</h2>
                         <p className="text-emerald-400">SCORE: {gameState.score}</p>
+                        {/* P0-B: was window.location.reload() */}
                         <button 
-                          onClick={() => window.location.reload()}
+                          onClick={handleRestart}
                           className="hardware-panel px-6 py-2 w-full hover:bg-white/5 transition-all font-display text-sm"
                         >
                           RESTART
@@ -227,8 +241,10 @@ export default function App() {
               </div>
             ) : (
               <div className="relative w-full h-full">
-                <GameCanvas 
-                  onStateUpdate={setGameState} 
+                {/* P0-B: key={sessionKey} remounts GameCanvas on restart */}
+                <GameCanvas
+                  key={sessionKey}
+                  onStateUpdate={setGameState}
                 />
                 {gameState && <HUD gameState={gameState} />}
                 
@@ -275,8 +291,9 @@ export default function App() {
                         <p className="text-white/40 uppercase tracking-widest text-[10px]">Final Score</p>
                         <p className="text-3xl md:text-4xl font-display text-emerald-400">{gameState.score}</p>
                       </div>
+                      {/* P0-B: was window.location.reload() */}
                       <button 
-                        onClick={() => window.location.reload()}
+                        onClick={handleRestart}
                         className="hardware-panel px-8 py-3 w-full hover:bg-white/5 transition-all font-display"
                       >
                         RESTART INITIATIVE
@@ -292,7 +309,9 @@ export default function App() {
       
       <div className="absolute inset-0 pointer-events-none">
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(0,255,0,0.05)_0%,transparent_70%)]" />
-        <div className="absolute inset-0 opacity-20" style={{ backgroundImage: 'url("https://www.transparenttextures.com/patterns/carbon-fibre.png")' }} />
+        {/* P5-B: was https://www.transparenttextures.com/patterns/carbon-fibre.png
+            Download that file to public/textures/carbon-fibre.png to complete this fix */}
+        <div className="absolute inset-0 opacity-20" style={{ backgroundImage: 'url("/textures/carbon-fibre.png")' }} />
       </div>
     </div>
   );
