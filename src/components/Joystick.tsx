@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Vector2 } from '../types';
 
 interface JoystickProps {
@@ -12,19 +12,28 @@ export const Joystick: React.FC<JoystickProps> = ({ onMove, onEnd, autoCenter = 
   const [position, setPosition] = useState<Vector2>({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
 
+  // P5-D: Wrap callbacks in useCallback so their identity is stable across renders.
+  // This allows including them in the dependency arrays below without causing
+  // effect re-runs on every parent render. Without this, onMove/onEnd were stale
+  // closures in the resetTrigger effect and the touch event effect.
+  const onMoveStable = useCallback(onMove, [onMove]);
+  const onEndStable = useCallback(onEnd, [onEnd]);
+
+  // P5-D: previously omitted onMove and onEnd from deps — stale closure risk.
   useEffect(() => {
     if (resetTrigger > 0) {
       setPosition({ x: 0, y: 0 });
-      onMove({ x: 0, y: 0 });
-      onEnd();
+      onMoveStable({ x: 0, y: 0 });
+      onEndStable();
     }
-  }, [resetTrigger]);
+  }, [resetTrigger, onMoveStable, onEndStable]);
+
   const containerRef = useRef<HTMLDivElement>(null);
   const joystickSize = 120;
   const knobSize = 50;
   const maxDistance = joystickSize / 2;
 
-  const handleStart = (clientX: number, clientY: number) => {
+  const handleStart = (_clientX: number, _clientY: number) => {
     setIsDragging(true);
   };
 
@@ -45,17 +54,19 @@ export const Joystick: React.FC<JoystickProps> = ({ onMove, onEnd, autoCenter = 
     }
 
     setPosition({ x: dx, y: dy });
-    onMove({ x: dx / maxDistance, y: dy / maxDistance });
+    onMoveStable({ x: dx / maxDistance, y: dy / maxDistance });
   };
 
-  const handleEnd = () => {
+  const handleEnd = useCallback(() => {
     setIsDragging(false);
     if (autoCenter) {
       setPosition({ x: 0, y: 0 });
-      onEnd();
+      onEndStable();
     }
-  };
+  }, [autoCenter, onEndStable]);
 
+  // P5-D: isDragging, handleMove, handleEnd all included so effect always
+  // uses current versions, not stale closures from mount.
   useEffect(() => {
     const onTouchMove = (e: TouchEvent) => {
       if (isDragging) {
@@ -71,7 +82,7 @@ export const Joystick: React.FC<JoystickProps> = ({ onMove, onEnd, autoCenter = 
       window.removeEventListener('touchmove', onTouchMove);
       window.removeEventListener('touchend', onTouchEnd);
     };
-  }, [isDragging]);
+  }, [isDragging, handleEnd]);
 
   return (
     <div 
