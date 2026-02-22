@@ -12,14 +12,14 @@ export default function App() {
   const [gameState, setGameState] = useState<GameState | null>(null);
   const [gameStarted, setGameStarted] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
-  // Landscape = width > height. Rechecked on resize/orientation change.
+  // isLandscape: width > height, rechecked on resize + orientationchange
   const [isLandscape, setIsLandscape] = useState(false);
   const [moveVector, setMoveVector] = useState<Vector2>({ x: 0, y: 0 });
   const [aimVector, setAimVector] = useState<Vector2>({ x: 0, y: 0 });
   const [isFiring, setIsFiring] = useState(false);
   const [moveMode, setMoveMode] = useState<'AUTO' | 'MANUAL' | 'SEMI'>('MANUAL');
   const [resetMoveTrigger, setResetMoveTrigger] = useState(0);
-  // P0-B: incrementing remounts <GameCanvas> via React key, no page reload needed.
+  // P0-B: incrementing remounts <GameCanvas> via React key — no page reload needed.
   const [sessionKey, setSessionKey] = useState(0);
 
   useEffect(() => {
@@ -29,39 +29,45 @@ export default function App() {
           navigator.userAgent
         ) || window.innerWidth < 1024;
       setIsMobile(mobile);
-      // Landscape when width exceeds height — works for both browser and PWA
       setIsLandscape(window.innerWidth > window.innerHeight);
     };
     update();
     window.addEventListener('resize', update);
-    // orientationchange fires before resize on some browsers — handle both
-    window.addEventListener('orientationchange', () => setTimeout(update, 100));
+    // orientationchange fires before resize on some Android browsers; 100ms delay
+    // lets the browser finish repainting before we re-measure.
+    const handleOrient = () => setTimeout(update, 100);
+    window.addEventListener('orientationchange', handleOrient);
     return () => {
       window.removeEventListener('resize', update);
-      window.removeEventListener('orientationchange', update);
+      window.removeEventListener('orientationchange', handleOrient);
     };
   }, []);
 
   const handleStartGame = () => setGameStarted(true);
 
-  // P0-B: Clears stale gameState then remounts GameCanvas.
+  // P0-B: clear stale game state then remount GameCanvas via key change.
   const handleRestart = () => {
     setGameState(null);
     setSessionKey(k => k + 1);
   };
 
-  // ─── Shared game canvas (keyed for reset) ──────────────────────────────────
-  const gameCanvas = (
+  const cycleMoveMode = () => {
+    const modes: ('AUTO' | 'MANUAL' | 'SEMI')[] = ['AUTO', 'MANUAL', 'SEMI'];
+    setMoveMode(modes[(modes.indexOf(moveMode) + 1) % modes.length]);
+  };
+
+  // ─── Shared: game canvas (keyed for P0-B reset) ────────────────────────────
+  const sharedCanvas = (extraProps?: { moveVector?: Vector2; aimVector?: Vector2; isFiring?: boolean }) => (
     <GameCanvas
       key={sessionKey}
       onStateUpdate={setGameState}
-      moveVector={moveVector}
-      aimVector={aimVector}
-      isFiring={isFiring}
+      moveVector={extraProps?.moveVector ?? moveVector}
+      aimVector={extraProps?.aimVector ?? aimVector}
+      isFiring={extraProps?.isFiring ?? isFiring}
     />
   );
 
-  // ─── Shared game-over overlay ──────────────────────────────────────────────
+  // ─── Shared: game-over overlay ─────────────────────────────────────────────
   const gameOverOverlay = gameState?.isGameOver ? (
     <div className="absolute inset-0 flex items-center justify-center z-50 bg-black/80 p-4 pointer-events-auto">
       <div className="hardware-panel p-6 text-center space-y-4 border-red-500 w-full max-w-xs">
@@ -79,58 +85,72 @@ export default function App() {
 
   // ─── Mobile landscape layout ───────────────────────────────────────────────
   // Canvas fills 100% of screen. All UI is absolutely positioned overlay.
-  // Nothing stacks vertically — avoids the portrait flex-col crushing in landscape.
+  // Nothing stacks vertically — avoids the flex-col crush on ~360px-tall screens.
+  //
+  // Layout:
+  //   top-left  → compact status HUD
+  //   top-right → radar
+  //   bottom-center → action slots (floating)
+  //   bottom-left   → move joystick
+  //   bottom-right  → aim joystick + fire button
   const mobileLandscapeGame = (
     <div className="relative w-full h-full bg-black overflow-hidden">
-      {/* Canvas: full screen background */}
-      <div className="absolute inset-0 z-0">{gameCanvas}</div>
+      {/* Canvas: fills entire screen */}
+      <div className="absolute inset-0 z-0">
+        {sharedCanvas()}
+      </div>
 
       {/* Top-left: compact status */}
-      <div className="absolute top-0 left-0 z-10 w-44 pointer-events-auto">
-        <div className="hardware-panel border-blue-500/30 bg-black/60 backdrop-blur-sm m-1 overflow-hidden relative">
+      <div className="absolute top-0 left-0 z-10 pointer-events-auto" style={{ width: 168 }}>
+        <div className="hardware-panel border-blue-500/30 bg-black/70 backdrop-blur-sm m-1 overflow-hidden relative" style={{ height: 110 }}>
           <div className="absolute top-1 left-2 text-[8px] text-blue-400 uppercase font-bold z-10">Status</div>
           {gameState && <HUD gameState={gameState} compact />}
         </div>
       </div>
 
       {/* Top-right: radar */}
-      <div className="absolute top-0 right-0 z-10 w-36 pointer-events-auto">
-        <div className="hardware-panel border-orange-500/30 bg-black/60 backdrop-blur-sm m-1 overflow-hidden relative" style={{ height: 144 }}>
+      <div className="absolute top-0 right-0 z-10 pointer-events-auto" style={{ width: 130 }}>
+        <div className="hardware-panel border-orange-500/30 bg-black/70 backdrop-blur-sm m-1 overflow-hidden relative" style={{ height: 130 }}>
           <div className="absolute top-1 left-2 text-[8px] text-orange-400 uppercase font-bold z-10">Radar</div>
           {gameState && <Radar gameState={gameState} />}
         </div>
       </div>
 
-      {/* Center-bottom: action slots — floating between the two joystick zones */}
+      {/* Center-bottom: action slots floating above joystick zone */}
       <div className="absolute bottom-0 left-0 right-0 z-10 flex justify-center items-end pb-2 pointer-events-none">
-        <div className="flex items-center gap-2 pointer-events-auto">
-          <button className="hardware-panel w-10 h-10 flex flex-col items-center justify-center bg-black/60 border-emerald-500/30 active:bg-emerald-500/20 transition-colors">
+        <div className="flex items-center gap-1 pointer-events-auto">
+          <button className="hardware-panel w-9 h-9 flex flex-col items-center justify-center bg-black/60 border-emerald-500/30 active:bg-emerald-500/20 transition-colors">
             <MenuIcon className="w-4 h-4 text-emerald-500" />
           </button>
           {[1, 2, 3, 4].map(i => (
             <div
               key={i}
-              className="hardware-panel w-10 h-10 flex flex-col items-center justify-center bg-black/60 border-emerald-500/30"
+              className="hardware-panel w-9 h-9 flex flex-col items-center justify-center bg-black/60 border-emerald-500/30"
             >
-              <span className="text-[8px] text-emerald-500/50">{i}</span>
-              <div className="w-4 h-4 border border-dashed border-white/10" />
+              <span className="text-[7px] text-emerald-500/50">{i}</span>
+              <div className="w-3 h-3 border border-dashed border-white/10" />
             </div>
           ))}
         </div>
       </div>
 
       {/* Bottom-left: move joystick */}
-      <div className="absolute bottom-0 left-0 z-10 pointer-events-auto">
-        <div className="hardware-panel border-emerald-500/30 bg-black/40 backdrop-blur-sm m-1 flex flex-col items-center justify-center relative" style={{ width: 136, height: 136 }}>
+      <div className="absolute bottom-0 left-0 z-10 pointer-events-auto m-1">
+        <div className="hardware-panel border-emerald-500/30 bg-black/50 backdrop-blur-sm flex items-center justify-center relative" style={{ width: 140, height: 140 }}>
           <button
-            onClick={() => {
-              const modes: ('AUTO' | 'MANUAL' | 'SEMI')[] = ['AUTO', 'MANUAL', 'SEMI'];
-              setMoveMode(modes[(modes.indexOf(moveMode) + 1) % modes.length]);
-            }}
-            className="absolute top-1 left-1 text-[7px] text-emerald-400 uppercase font-bold z-10 px-1 bg-emerald-500/10 rounded"
+            onClick={cycleMoveMode}
+            className="absolute top-1 left-1 text-[7px] text-emerald-400 uppercase font-bold z-10 px-1 bg-black/40 rounded"
           >
             {moveMode}
           </button>
+          {moveMode === 'SEMI' && (
+            <button
+              onClick={() => setResetMoveTrigger(p => p + 1)}
+              className="absolute top-1 right-1 text-[7px] bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-1 rounded uppercase font-bold z-10"
+            >
+              CTR
+            </button>
+          )}
           <Joystick
             onMove={setMoveVector}
             onEnd={() => {}}
@@ -140,12 +160,13 @@ export default function App() {
         </div>
       </div>
 
-      {/* Bottom-right: aim joystick + fire button */}
+      {/* Bottom-right: fire button + aim joystick */}
       <div className="absolute bottom-0 right-0 z-10 pointer-events-auto flex items-end gap-1 m-1">
-        <div className="flex flex-col items-center justify-end gap-1">
+        {/* Fire button sits above/beside aim joystick */}
+        <div className="flex flex-col justify-end pb-2">
           <FireButton onPress={() => setIsFiring(true)} onRelease={() => setIsFiring(false)} />
         </div>
-        <div className="hardware-panel border-red-500/30 bg-black/40 backdrop-blur-sm flex items-center justify-center relative" style={{ width: 136, height: 136 }}>
+        <div className="hardware-panel border-red-500/30 bg-black/50 backdrop-blur-sm flex items-center justify-center relative" style={{ width: 140, height: 140 }}>
           <div className="absolute top-1 left-1 text-[7px] text-red-400 uppercase font-bold z-10">AIM</div>
           <Joystick onMove={setAimVector} onEnd={() => setAimVector({ x: 0, y: 0 })} />
         </div>
@@ -156,15 +177,18 @@ export default function App() {
   );
 
   // ─── Mobile portrait layout ────────────────────────────────────────────────
-  // Uses 100dvh-safe flex-col. Controls are compact to leave maximum canvas space.
+  // Fixed pixel heights for top/bottom zones so the game canvas gets whatever
+  // remains in the middle. 100dvh on the root ensures we don't overflow browser chrome.
   const mobilePortraitGame = (
     <div className="flex flex-col h-full w-full bg-black relative">
-      {/* Canvas — fills the flex gap */}
-      <div className="absolute inset-0 z-0">{gameCanvas}</div>
+      {/* Canvas: fills the whole background — top/bottom panels overlay it */}
+      <div className="absolute inset-0 z-0">
+        {sharedCanvas()}
+      </div>
 
       <div className="relative z-10 flex flex-col h-full pointer-events-none">
-        {/* Top row: Status + Radar — compact fixed height */}
-        <div className="flex gap-1 p-1 pointer-events-auto" style={{ height: 120 }}>
+        {/* Top panels: fixed height so they don't eat into the canvas */}
+        <div className="flex gap-1 p-1 pointer-events-auto" style={{ height: 116 }}>
           <div className="flex-1 hardware-panel border-blue-500/30 overflow-hidden relative bg-black/70 backdrop-blur-[2px]">
             <div className="absolute top-1 left-2 text-[8px] text-blue-400 uppercase font-bold z-10">Status</div>
             {gameState && <HUD gameState={gameState} compact />}
@@ -175,39 +199,36 @@ export default function App() {
           </div>
         </div>
 
-        {/* Spacer — game canvas shows through here */}
+        {/* Spacer: game canvas shows through here */}
         <div className="flex-grow" />
 
-        {/* Bottom controls */}
-        <div className="pointer-events-auto bg-black/40 backdrop-blur-sm">
+        {/* Bottom controls: dark bar so joysticks are visible against canvas */}
+        <div className="pointer-events-auto bg-black/60 backdrop-blur-sm">
           {/* Action bar */}
-          <div className="flex justify-center items-center gap-2 pt-1 px-1">
-            <button className="hardware-panel w-10 h-10 flex flex-col items-center justify-center bg-black/40 border-emerald-500/30 active:bg-emerald-500/20 transition-colors">
+          <div className="flex justify-center items-center gap-1.5 pt-1.5 px-1">
+            <button className="hardware-panel w-10 h-10 flex flex-col items-center justify-center bg-black/40 border-emerald-500/30 active:bg-emerald-500/20 transition-colors shrink-0">
               <MenuIcon className="w-4 h-4 text-emerald-500" />
-              <span className="text-[7px] text-emerald-500/50">MENU</span>
+              <span className="text-[6px] text-emerald-500/50">MENU</span>
             </button>
             {[1, 2, 3, 4].map(i => (
               <div
                 key={i}
-                className="hardware-panel w-10 h-10 flex flex-col items-center justify-center bg-black/40 border-emerald-500/30"
+                className="hardware-panel w-10 h-10 flex flex-col items-center justify-center bg-black/40 border-emerald-500/30 shrink-0"
               >
-                <span className="text-[7px] text-emerald-500/50">{i}</span>
+                <span className="text-[6px] text-emerald-500/50">{i}</span>
                 <div className="w-4 h-4 border border-dashed border-white/10" />
               </div>
             ))}
-            <div className="relative w-10 h-10">
+            <div className="relative shrink-0" style={{ width: 40, height: 40 }}>
               <FireButton onPress={() => setIsFiring(true)} onRelease={() => setIsFiring(false)} />
             </div>
           </div>
 
-          {/* Joystick row */}
-          <div className="flex gap-1 p-1" style={{ height: 130 }}>
+          {/* Joystick row: fixed height */}
+          <div className="flex gap-1 p-1" style={{ height: 128 }}>
             <div className="flex-1 hardware-panel border-emerald-500/30 flex items-center justify-center relative bg-black/20">
               <button
-                onClick={() => {
-                  const modes: ('AUTO' | 'MANUAL' | 'SEMI')[] = ['AUTO', 'MANUAL', 'SEMI'];
-                  setMoveMode(modes[(modes.indexOf(moveMode) + 1) % modes.length]);
-                }}
+                onClick={cycleMoveMode}
                 className="absolute top-1 left-2 text-[7px] text-emerald-400 uppercase font-bold z-10 hover:bg-emerald-500/20 px-1 rounded"
               >
                 {moveMode}
@@ -240,10 +261,13 @@ export default function App() {
   );
 
   return (
-    // 100dvh: accounts for browser chrome on mobile (address bar, nav bar).
-    // 100vh reports the full screen height but chrome can cover content.
-    // 100dvh = actual visible viewport. Supported Chrome 108+, Safari 15.4+, FF 101+.
-    <div className="relative w-screen overflow-hidden flex items-center justify-center font-mono" style={{ height: '100dvh' }}>
+    // 100dvh = dynamic viewport height — excludes browser chrome (address bar, nav bar).
+    // 100vh reports full screen but chrome can visually cover the bottom of content.
+    // dvh supported: Chrome 108+, Safari 15.4+, Firefox 101+.
+    <div
+      className="relative w-screen overflow-hidden flex items-center justify-center font-mono"
+      style={{ height: '100dvh' }}
+    >
       <AnimatePresence mode="wait">
         {!gameStarted ? (
           <motion.div
@@ -251,13 +275,14 @@ export default function App() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
+            // overflow-auto so menu scrolls if it can't fit (edge case: very small screens)
             className="z-10 flex flex-col items-center gap-6 md:gap-12 p-4 w-full max-h-full overflow-auto"
           >
             <div className="text-center space-y-2 md:space-y-4">
               <motion.h1
                 initial={{ y: -20 }}
                 animate={{ y: 0 }}
-                className="text-5xl md:text-8xl font-display font-bold tracking-tighter text-white neon-text"
+                className="text-4xl md:text-8xl font-display font-bold tracking-tighter text-white neon-text"
               >
                 PROJECT: ORION
               </motion.h1>
@@ -266,25 +291,26 @@ export default function App() {
               </p>
             </div>
 
+            {/* 3-column grid on all sizes — cards collapse gracefully in landscape */}
             <div className="grid grid-cols-3 gap-2 md:gap-6 w-full max-w-4xl px-2 md:px-8">
               <div className="hardware-panel p-3 md:p-6 space-y-2 md:space-y-4 group hover:border-emerald-500/50 transition-colors cursor-pointer">
                 <Shield className="w-5 h-5 md:w-8 md:h-8 text-emerald-500" />
                 <h3 className="font-display text-xs md:text-lg">DEFENSE</h3>
-                <p className="text-[9px] text-white/40 leading-relaxed hidden md:block">
+                <p className="text-[8px] text-white/40 leading-relaxed hidden md:block">
                   Advanced composite plating and energy shielding systems.
                 </p>
               </div>
               <div className="hardware-panel p-3 md:p-6 space-y-2 md:space-y-4 group hover:border-blue-500/50 transition-colors cursor-pointer">
                 <Zap className="w-5 h-5 md:w-8 md:h-8 text-blue-500" />
                 <h3 className="font-display text-xs md:text-lg">ENERGY</h3>
-                <p className="text-[9px] text-white/40 leading-relaxed hidden md:block">
+                <p className="text-[8px] text-white/40 leading-relaxed hidden md:block">
                   High-output fusion core with rapid regeneration capabilities.
                 </p>
               </div>
               <div className="hardware-panel p-3 md:p-6 space-y-2 md:space-y-4 group hover:border-orange-500/50 transition-colors cursor-pointer">
                 <Target className="w-5 h-5 md:w-8 md:h-8 text-orange-500" />
                 <h3 className="font-display text-xs md:text-lg">OFFENSE</h3>
-                <p className="text-[9px] text-white/40 leading-relaxed hidden md:block">
+                <p className="text-[8px] text-white/40 leading-relaxed hidden md:block">
                   Precision targeting and thermal management protocols.
                 </p>
               </div>
@@ -320,10 +346,9 @@ export default function App() {
             className="w-full h-full"
           >
             {isMobile ? (
-              // Mobile: branch on orientation
               isLandscape ? mobileLandscapeGame : mobilePortraitGame
             ) : (
-              // Desktop layout — unchanged
+              // Desktop — unchanged from prior session
               <div className="relative w-full h-full">
                 <GameCanvas key={sessionKey} onStateUpdate={setGameState} />
                 {gameState && <HUD gameState={gameState} />}
