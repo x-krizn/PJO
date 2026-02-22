@@ -27,7 +27,7 @@ export default defineConfig({
         display: "standalone",
         orientation: "landscape",
         start_url: "/PJO/",
-        scope: "/orion-bog-demo/",
+        scope: "/PJO/",
         icons: [
           {
             src: "icon-192.png",
