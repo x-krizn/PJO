@@ -109,7 +109,8 @@ export const HUD: React.FC<HUDProps> = ({ gameState, compact = false }) => {
               <div className="space-y-1">
                 <div className="flex justify-between text-[8px] md:text-[10px] uppercase tracking-tighter">
                   <span className="text-blue-400">Shielding</span>
-                  <span className="text-blue-300">{Math.ceil(player.shields)}%</span>
+                  {/* P2-C: shields were already correct — kept as-is */}
+                  <span className="text-blue-300">{Math.ceil((player.shields / player.maxShields) * 100)}%</span>
                 </div>
                 <div className="h-1.5 bg-blue-950/50 rounded-full overflow-hidden border border-blue-400/20">
                   <motion.div 
@@ -125,7 +126,9 @@ export const HUD: React.FC<HUDProps> = ({ gameState, compact = false }) => {
             <div className="space-y-1">
               <div className="flex justify-between text-[8px] md:text-[10px] uppercase tracking-tighter">
                 <span className="text-emerald-500">Hull Integrity</span>
-                <span className="text-emerald-400">{Math.ceil(player.health)}%</span>
+                {/* P2-C: was Math.ceil(player.health)% which showed "500%" at full health.
+                    Fixed to compute actual percentage against maxHealth. */}
+                <span className="text-emerald-400">{Math.ceil((player.health / player.maxHealth) * 100)}%</span>
               </div>
               <div className="h-1.5 md:h-2 bg-emerald-950 rounded-full overflow-hidden border border-emerald-900/50">
                 <motion.div 
@@ -140,7 +143,8 @@ export const HUD: React.FC<HUDProps> = ({ gameState, compact = false }) => {
             <div className="space-y-1">
               <div className="flex justify-between text-[8px] md:text-[10px] uppercase tracking-tighter">
                 <span className="text-blue-500">Core Energy</span>
-                <span className="text-blue-400">{Math.ceil(player.energy)}%</span>
+                {/* P2-C: same fix applied to energy for consistency */}
+                <span className="text-blue-400">{Math.ceil((player.energy / player.maxEnergy) * 100)}%</span>
               </div>
               <div className="h-1.5 md:h-2 bg-blue-950 rounded-full overflow-hidden border border-blue-900/50">
                 <motion.div 
@@ -155,7 +159,8 @@ export const HUD: React.FC<HUDProps> = ({ gameState, compact = false }) => {
             <div className="space-y-1">
               <div className="flex justify-between text-[8px] md:text-[10px] uppercase tracking-tighter">
                 <span className="text-orange-500">Thermal Load</span>
-                <span className="text-orange-400">{Math.ceil(player.heat)}%</span>
+                {/* P2-C: same fix applied to heat for consistency */}
+                <span className="text-orange-400">{Math.ceil((player.heat / player.maxHeat) * 100)}%</span>
               </div>
               <div className="h-1.5 md:h-2 bg-orange-950 rounded-full overflow-hidden border border-orange-900/50">
                 <motion.div 
