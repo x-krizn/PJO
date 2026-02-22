@@ -1,5 +1,5 @@
 import { ActionType, SkillType, ReloadMode, Weapon } from './types';
-import { seededRandom } from './utils/seededRandom';
+import { seededRandom } from './utils/seededRandom.ts';
 
 export const CANVAS_WIDTH = 1200;
 export const CANVAS_HEIGHT = 800;
