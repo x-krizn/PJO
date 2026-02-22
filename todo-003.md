@@ -24,11 +24,11 @@
 
 ## CRITICAL — REPO HYGIENE
 
-- [ ] **Delete `codebase-dump.txt`** — 13k line debug file committed to main, bloats repo
-- [ ] **Delete `server.ts`** — Express server, never used, GH Pages is static-only
-- [ ] **Delete `metadata.json`** — AI Studio template artifact, irrelevant
-- [ ] **Update README.md** — still references Gemini API key setup from the template
-- [ ] **Add `.gitignore` entry for `*.txt` dumps** — prevent future accidental commits
+- [x] **Delete `codebase-dump.txt`** — 13k line debug file committed to main, bloats repo
+- [x] **Delete `server.ts`** — Express server, never used, GH Pages is static-only
+- [x] **Delete `metadata.json`** — AI Studio template artifact, irrelevant
+- [x] **Update README.md** — still references Gemini API key setup from the template
+- [x] **Add `.gitignore` entry for `*.txt` dumps** — prevent future accidental commits
 
 ---
 
