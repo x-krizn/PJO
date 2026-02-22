@@ -1,7 +1,0 @@
-{
-  "name": "Project: Orion",
-  "description": "A top-down action RPG mech shooter demo. Experience the tactical combat of the Orion initiative.",
-  "requestFramePermissions": [
-    "geolocation"
-  ]
-}
