@@ -12,14 +12,13 @@ export default function App() {
   const [gameState, setGameState] = useState<GameState | null>(null);
   const [gameStarted, setGameStarted] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
-  // isLandscape: width > height, rechecked on resize + orientationchange
   const [isLandscape, setIsLandscape] = useState(false);
   const [moveVector, setMoveVector] = useState<Vector2>({ x: 0, y: 0 });
   const [aimVector, setAimVector] = useState<Vector2>({ x: 0, y: 0 });
   const [isFiring, setIsFiring] = useState(false);
   const [moveMode, setMoveMode] = useState<'AUTO' | 'MANUAL' | 'SEMI'>('MANUAL');
   const [resetMoveTrigger, setResetMoveTrigger] = useState(0);
-  // P0-B: incrementing remounts <GameCanvas> via React key — no page reload needed.
+  // P0-B: incrementing remounts <GameCanvas> via React key — no page reload needed
   const [sessionKey, setSessionKey] = useState(0);
 
   useEffect(() => {
@@ -33,8 +32,6 @@ export default function App() {
     };
     update();
     window.addEventListener('resize', update);
-    // orientationchange fires before resize on some Android browsers; 100ms delay
-    // lets the browser finish repainting before we re-measure.
     const handleOrient = () => setTimeout(update, 100);
     window.addEventListener('orientationchange', handleOrient);
     return () => {
@@ -45,7 +42,6 @@ export default function App() {
 
   const handleStartGame = () => setGameStarted(true);
 
-  // P0-B: clear stale game state then remount GameCanvas via key change.
   const handleRestart = () => {
     setGameState(null);
     setSessionKey(k => k + 1);
@@ -56,18 +52,21 @@ export default function App() {
     setMoveMode(modes[(modes.indexOf(moveMode) + 1) % modes.length]);
   };
 
-  // ─── Shared: game canvas (keyed for P0-B reset) ────────────────────────────
-  const sharedCanvas = (extraProps?: { moveVector?: Vector2; aimVector?: Vector2; isFiring?: boolean }) => (
+  // ── Shared game canvas ────────────────────────────────────────────────────
+  // isMobile is passed through so GameCanvas can skip mouse event listeners,
+  // preventing synthetic mouse events from touch from triggering PC controls.
+  const mobileCanvas = (
     <GameCanvas
       key={sessionKey}
       onStateUpdate={setGameState}
-      moveVector={extraProps?.moveVector ?? moveVector}
-      aimVector={extraProps?.aimVector ?? aimVector}
-      isFiring={extraProps?.isFiring ?? isFiring}
+      moveVector={moveVector}
+      aimVector={aimVector}
+      isFiring={isFiring}
+      isMobile={true}
     />
   );
 
-  // ─── Shared: game-over overlay ─────────────────────────────────────────────
+  // ── Shared game-over overlay ──────────────────────────────────────────────
   const gameOverOverlay = gameState?.isGameOver ? (
     <div className="absolute inset-0 flex items-center justify-center z-50 bg-black/80 p-4 pointer-events-auto">
       <div className="hardware-panel p-6 text-center space-y-4 border-red-500 w-full max-w-xs">
@@ -83,22 +82,12 @@ export default function App() {
     </div>
   ) : null;
 
-  // ─── Mobile landscape layout ───────────────────────────────────────────────
-  // Canvas fills 100% of screen. All UI is absolutely positioned overlay.
-  // Nothing stacks vertically — avoids the flex-col crush on ~360px-tall screens.
-  //
-  // Layout:
-  //   top-left  → compact status HUD
-  //   top-right → radar
-  //   bottom-center → action slots (floating)
-  //   bottom-left   → move joystick
-  //   bottom-right  → aim joystick + fire button
+  // ── Mobile landscape layout ───────────────────────────────────────────────
+  // Full-screen canvas with absolutely positioned overlays.
+  // Nothing stacks vertically — avoids flex-col crushing on ~360px-tall screens.
   const mobileLandscapeGame = (
     <div className="relative w-full h-full bg-black overflow-hidden">
-      {/* Canvas: fills entire screen */}
-      <div className="absolute inset-0 z-0">
-        {sharedCanvas()}
-      </div>
+      <div className="absolute inset-0 z-0">{mobileCanvas}</div>
 
       {/* Top-left: compact status */}
       <div className="absolute top-0 left-0 z-10 pointer-events-auto" style={{ width: 168 }}>
@@ -116,17 +105,14 @@ export default function App() {
         </div>
       </div>
 
-      {/* Center-bottom: action slots floating above joystick zone */}
+      {/* Center-bottom: action slots */}
       <div className="absolute bottom-0 left-0 right-0 z-10 flex justify-center items-end pb-2 pointer-events-none">
         <div className="flex items-center gap-1 pointer-events-auto">
           <button className="hardware-panel w-9 h-9 flex flex-col items-center justify-center bg-black/60 border-emerald-500/30 active:bg-emerald-500/20 transition-colors">
             <MenuIcon className="w-4 h-4 text-emerald-500" />
           </button>
           {[1, 2, 3, 4].map(i => (
-            <div
-              key={i}
-              className="hardware-panel w-9 h-9 flex flex-col items-center justify-center bg-black/60 border-emerald-500/30"
-            >
+            <div key={i} className="hardware-panel w-9 h-9 flex flex-col items-center justify-center bg-black/60 border-emerald-500/30">
               <span className="text-[7px] text-emerald-500/50">{i}</span>
               <div className="w-3 h-3 border border-dashed border-white/10" />
             </div>
@@ -160,9 +146,8 @@ export default function App() {
         </div>
       </div>
 
-      {/* Bottom-right: fire button + aim joystick */}
+      {/* Bottom-right: fire + aim joystick */}
       <div className="absolute bottom-0 right-0 z-10 pointer-events-auto flex items-end gap-1 m-1">
-        {/* Fire button sits above/beside aim joystick */}
         <div className="flex flex-col justify-end pb-2">
           <FireButton onPress={() => setIsFiring(true)} onRelease={() => setIsFiring(false)} />
         </div>
@@ -176,18 +161,13 @@ export default function App() {
     </div>
   );
 
-  // ─── Mobile portrait layout ────────────────────────────────────────────────
-  // Fixed pixel heights for top/bottom zones so the game canvas gets whatever
-  // remains in the middle. 100dvh on the root ensures we don't overflow browser chrome.
+  // ── Mobile portrait layout ────────────────────────────────────────────────
   const mobilePortraitGame = (
     <div className="flex flex-col h-full w-full bg-black relative">
-      {/* Canvas: fills the whole background — top/bottom panels overlay it */}
-      <div className="absolute inset-0 z-0">
-        {sharedCanvas()}
-      </div>
+      <div className="absolute inset-0 z-0">{mobileCanvas}</div>
 
       <div className="relative z-10 flex flex-col h-full pointer-events-none">
-        {/* Top panels: fixed height so they don't eat into the canvas */}
+        {/* Top panels: fixed height */}
         <div className="flex gap-1 p-1 pointer-events-auto" style={{ height: 116 }}>
           <div className="flex-1 hardware-panel border-blue-500/30 overflow-hidden relative bg-black/70 backdrop-blur-[2px]">
             <div className="absolute top-1 left-2 text-[8px] text-blue-400 uppercase font-bold z-10">Status</div>
@@ -199,22 +179,18 @@ export default function App() {
           </div>
         </div>
 
-        {/* Spacer: game canvas shows through here */}
+        {/* Game canvas shows through here */}
         <div className="flex-grow" />
 
-        {/* Bottom controls: dark bar so joysticks are visible against canvas */}
+        {/* Bottom controls */}
         <div className="pointer-events-auto bg-black/60 backdrop-blur-sm">
-          {/* Action bar */}
           <div className="flex justify-center items-center gap-1.5 pt-1.5 px-1">
             <button className="hardware-panel w-10 h-10 flex flex-col items-center justify-center bg-black/40 border-emerald-500/30 active:bg-emerald-500/20 transition-colors shrink-0">
               <MenuIcon className="w-4 h-4 text-emerald-500" />
               <span className="text-[6px] text-emerald-500/50">MENU</span>
             </button>
             {[1, 2, 3, 4].map(i => (
-              <div
-                key={i}
-                className="hardware-panel w-10 h-10 flex flex-col items-center justify-center bg-black/40 border-emerald-500/30 shrink-0"
-              >
+              <div key={i} className="hardware-panel w-10 h-10 flex flex-col items-center justify-center bg-black/40 border-emerald-500/30 shrink-0">
                 <span className="text-[6px] text-emerald-500/50">{i}</span>
                 <div className="w-4 h-4 border border-dashed border-white/10" />
               </div>
@@ -224,7 +200,6 @@ export default function App() {
             </div>
           </div>
 
-          {/* Joystick row: fixed height */}
           <div className="flex gap-1 p-1" style={{ height: 128 }}>
             <div className="flex-1 hardware-panel border-emerald-500/30 flex items-center justify-center relative bg-black/20">
               <button
@@ -261,9 +236,7 @@ export default function App() {
   );
 
   return (
-    // 100dvh = dynamic viewport height — excludes browser chrome (address bar, nav bar).
-    // 100vh reports full screen but chrome can visually cover the bottom of content.
-    // dvh supported: Chrome 108+, Safari 15.4+, Firefox 101+.
+    // 100dvh = dynamic viewport height — excludes browser chrome on mobile
     <div
       className="relative w-screen overflow-hidden flex items-center justify-center font-mono"
       style={{ height: '100dvh' }}
@@ -275,7 +248,6 @@ export default function App() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            // overflow-auto so menu scrolls if it can't fit (edge case: very small screens)
             className="z-10 flex flex-col items-center gap-6 md:gap-12 p-4 w-full max-h-full overflow-auto"
           >
             <div className="text-center space-y-2 md:space-y-4">
@@ -291,7 +263,6 @@ export default function App() {
               </p>
             </div>
 
-            {/* 3-column grid on all sizes — cards collapse gracefully in landscape */}
             <div className="grid grid-cols-3 gap-2 md:gap-6 w-full max-w-4xl px-2 md:px-8">
               <div className="hardware-panel p-3 md:p-6 space-y-2 md:space-y-4 group hover:border-emerald-500/50 transition-colors cursor-pointer">
                 <Shield className="w-5 h-5 md:w-8 md:h-8 text-emerald-500" />
@@ -348,9 +319,13 @@ export default function App() {
             {isMobile ? (
               isLandscape ? mobileLandscapeGame : mobilePortraitGame
             ) : (
-              // Desktop — unchanged from prior session
+              // Desktop — mouse listeners active, isMobile=false (default)
               <div className="relative w-full h-full">
-                <GameCanvas key={sessionKey} onStateUpdate={setGameState} />
+                <GameCanvas
+                  key={sessionKey}
+                  onStateUpdate={setGameState}
+                  isMobile={false}
+                />
                 {gameState && <HUD gameState={gameState} />}
 
                 <div className="absolute top-8 right-8 w-48 h-48 hardware-panel border-orange-500/30 z-30 hidden lg:block">
@@ -364,10 +339,7 @@ export default function App() {
                     <span className="text-[8px] text-emerald-500/50">MENU</span>
                   </button>
                   {[1, 2, 3, 4].map(i => (
-                    <div
-                      key={i}
-                      className="hardware-panel w-12 h-12 flex flex-col items-center justify-center bg-black/40 border-emerald-500/30"
-                    >
+                    <div key={i} className="hardware-panel w-12 h-12 flex flex-col items-center justify-center bg-black/40 border-emerald-500/30">
                       <span className="text-[8px] text-emerald-500/50">{i}</span>
                       <div className="w-5 h-5 border border-dashed border-white/10" />
                     </div>
@@ -406,7 +378,7 @@ export default function App() {
 
       <div className="absolute inset-0 pointer-events-none">
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(0,255,0,0.05)_0%,transparent_70%)]" />
-        {/* P5-B: local texture — download carbon-fibre.png to public/textures/ */}
+        {/* P5-B: local texture — requires public/textures/carbon-fibre.png */}
         <div className="absolute inset-0 opacity-20" style={{ backgroundImage: 'url("/textures/carbon-fibre.png")' }} />
       </div>
     </div>
