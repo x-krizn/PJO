@@ -1,6 +1,6 @@
 # PROJECT ORION — TECHNICAL TODO
 *Last Updated: 2026-02-22*
-*Version: 004.0 — Full Build Audit + Pre-Alpha Roadmap*
+*Version: 004.1 — Session 1 Complete*
 
 ---
 
@@ -36,6 +36,58 @@ No claims are inferred from prior todo documents without independent verificatio
 
 ---
 
+## COMPLETED (SESSION 1 — 2026-02-22)
+
+- [x] **P0-A** — `src/utils/seededRandom.ts` created (mulberry32 PRNG). All four
+  `Math.random()` calls in `constants.ts` map generation replaced with `rng()`.
+  `generateBogMap(seed)` extracted as a pure exported function. `MAP_SEED = 20260222`
+  exported as the default seed. `BOG_MAP` generated at module load via
+  `generateBogMap(MAP_SEED)`.
+
+- [x] **P0-B** — `window.location.reload()` eliminated. `App.tsx` now holds
+  `sessionKey` state. Both game-over RESTART buttons call `handleRestart()` which
+  clears `gameState` and increments `sessionKey`. `<GameCanvas key={sessionKey} />`
+  remounts cleanly, reinitializing all refs without a page reload.
+
+- [x] **P2-C / F-04** — HUD health display fixed in both compact and full modes.
+  `{Math.ceil(player.health)}%` → `{Math.ceil((player.health / player.maxHealth) * 100)}%`.
+  Same fix applied to energy and heat labels for consistency.
+  Also corrected `shields` label which had the same issue.
+
+- [x] **P5-B / F-06** — CDN texture dependency eliminated in code.
+  `App.tsx` now references `/textures/carbon-fibre.png` (local).
+  **Manual step still required:** download
+  `https://www.transparenttextures.com/patterns/carbon-fibre.png`
+  and save to `public/textures/carbon-fibre.png`.
+
+- [x] **P5-C / F-05** — `FireButton.tsx`: added `onMouseDown`, `onMouseUp`, and
+  `onMouseLeave` handlers alongside existing touch handlers. Desktop button now
+  provides visual active-state feedback. `onMouseLeave` guards against held-fire
+  persisting when cursor exits the button.
+
+- [x] **P5-D / F-07** — `Joystick.tsx`: stale closure risk resolved. `onMove` and
+  `onEnd` wrapped in `useCallback`. `resetTrigger` effect and touch event effect
+  now include all relevant dependencies. `handleEnd` extracted as a `useCallback`
+  so it can be added to the touch effect deps without causing infinite loops.
+
+- [x] **F-J — Mobile viewport cutoff (new bug, found + fixed)** — Root container
+  used `h-screen` (`100vh`). On Android Chrome, `100vh` includes the address bar
+  height in its measurement, but the address bar visually covers content, causing
+  bottom controls to be clipped. Fixed with `style={{ height: '100dvh' }}` (dynamic
+  viewport height, excludes browser chrome). Supported: Chrome 108+, Safari 15.4+,
+  Firefox 101+.
+
+- [x] **F-K — Mobile landscape layout unusable (new bug, found + fixed)** — The
+  mobile game branch used `flex-col` stacking: top panel (`h-[18%]`) + canvas
+  (flex-grow) + controls (`~188px`). On a landscape phone (~360px tall), the canvas
+  received near-zero height. Fixed by adding a distinct `mobileLandscapeGame` branch
+  in `App.tsx` that uses `position: absolute` overlays on a full-screen canvas.
+  `isLandscape` state (`window.innerWidth > window.innerHeight`) is set on `resize`
+  and `orientationchange` (100ms delay for Android repaint). Portrait branch also
+  moved to fixed pixel heights for top/bottom zones to prevent `%`-based collapse.
+
+---
+
 ## VERIFIED WORKING
 
 | System | Status | Verified In |
@@ -58,15 +110,22 @@ No claims are inferred from prior todo documents without independent verificatio
 | Cooldown system (tick + expiry) | ✅ | GameCanvas.tsx cooldowns loop |
 | Per-shot reload trigger on ammo=0 | ✅ | GameCanvas.tsx fire handler |
 | Ammo restore on reload expiry | ✅ | GameCanvas.tsx cooldowns loop |
+| Seeded map generation | ✅ | constants.ts + seededRandom.ts |
+| Session reset without page reload | ✅ | App.tsx sessionKey pattern |
+| HUD stat % display (health/energy/heat) | ✅ | HUD.tsx |
+| Mobile portrait layout (100dvh) | ✅ | App.tsx |
+| Mobile landscape layout (overlay) | ✅ | App.tsx |
+| FireButton desktop click feedback | ✅ | FireButton.tsx |
 
 ---
 
 ## AUDIT FINDINGS — BUGS NOT IN PRIOR TODO
 
-These were discovered during the 2026-02-22 source audit and were not documented in todo-003.
+These were discovered during the 2026-02-22 source audit.
 
 ### F-01 — `shot_count` from BurstPayload is ignored
 **File:** `GameCanvas.tsx` — fire handler
+**Status:** OPEN — tracked as P1-A
 **Detail:** `burst_1` defines `payload: { shot_count: 3 }`. The fire handler spawns exactly
 one projectile per trigger. `BurstPayload` is imported but `payload.shot_count` is never
 read. The combat loop is silently single-shot, not a 3-round burst as designed.
@@ -74,6 +133,7 @@ read. The combat loop is silently single-shot, not a 3-round burst as designed.
 
 ### F-02 — Reload mode is effectively FORCED_FULL despite PER_SHOT definition
 **File:** `GameCanvas.tsx` — fire handler
+**Status:** OPEN — tracked as P1-B
 **Detail:** `reloadTime = weapon.reload_cooldown.max_shots * weapon.reload_cooldown.scalar`
 always uses `max_shots` (9), ignoring shots actually fired. The weapon is defined as
 `ReloadMode.PER_SHOT` in `constants.ts`. A `shots_fired_since_last_reload` counter does
@@ -82,88 +142,79 @@ not exist. Partial chains always cost a full 9-shot reload (3.15 sec).
 
 ### F-03 — Manual reload (R key) not wired
 **File:** `GameCanvas.tsx` — update()
+**Status:** OPEN — tracked as P1-C
 **Detail:** `ReloadCooldown.keybind` is defined as `'R'` in the GLADIUS definition.
 `keysRef` is never checked for `'KeyR'`. Manual reload cannot be triggered.
 
-### F-04 — Health display in HUD shows raw number, not percentage
-**File:** `HUD.tsx` — both compact and full modes
-**Detail:** `{Math.ceil(player.health)}%` outputs `"500%"` at full health (max is 500).
-Should be `{Math.ceil((player.health / player.maxHealth) * 100)}%`.
-**Impact:** Cosmetic but misleading.
+### ~~F-04 — Health display in HUD shows raw number, not percentage~~ FIXED (P2-C)
+**Fixed in:** `HUD.tsx` — both compact and full modes, plus energy and heat labels.
 
-### F-05 — FireButton has no mouse event handlers
-**File:** `FireButton.tsx`
-**Detail:** Only `onTouchStart`/`onTouchEnd` are handled. The button is inert on desktop.
-Desktop fire works via `Mouse0` on the `window` listener so gameplay is unaffected, but
-the button provides no visual feedback on desktop click.
-**Impact:** Minor — cosmetic dead button on desktop.
+### ~~F-05 — FireButton has no mouse event handlers~~ FIXED (P5-C)
+**Fixed in:** `FireButton.tsx` — added `onMouseDown`, `onMouseUp`, `onMouseLeave`.
 
-### F-06 — External CDN texture dependency
-**File:** `App.tsx`
-**Detail:** `https://www.transparenttextures.com/patterns/carbon-fibre.png` is fetched
-at runtime as a background texture. If the external CDN is unavailable the request fails
-silently. Network request fires on every session start.
-**Fragility:** FRAGILE — external runtime dependency in a PWA.
-**Fix:** Download texture to `public/` and reference locally.
+### ~~F-06 — External CDN texture dependency~~ FIXED in code (P5-B)
+**Fixed in:** `App.tsx` — URL changed to `/textures/carbon-fibre.png`.
+**Pending:** Manual download of PNG to `public/textures/carbon-fibre.png`.
 
-### F-07 — `Joystick.tsx` stale-closure risk in `resetTrigger` useEffect
-**File:** `Joystick.tsx`
-**Detail:** `useEffect` for `resetTrigger` omits `onMove` and `onEnd` from its dependency
-array. If callback identity changes between renders, the effect uses stale versions.
-Currently OK because both callbacks are stable, but technically incorrect.
-**Impact:** Low — ESLint warning, latent risk.
+### ~~F-07 — `Joystick.tsx` stale-closure risk in `resetTrigger` useEffect~~ FIXED (P5-D)
+**Fixed in:** `Joystick.tsx` — `useCallback` wrappers + complete dependency arrays.
 
 ### F-08 — `Radar.tsx` uses `ctx.createConicGradient`
 **File:** `Radar.tsx`
+**Status:** OPEN — low priority
 **Detail:** `createConicGradient` requires Chrome 99+, Firefox 112+, Safari 16.4+.
 Acceptable for a modern mobile PWA but worth noting for any older device support.
 **Fragility:** Low risk for current targets.
 
+### ~~F-J — Mobile viewport cutoff (`100vh`)~~ FIXED (Session 1)
+**Fixed in:** `App.tsx` — root container changed to `style={{ height: '100dvh' }}`.
+
+### ~~F-K — Mobile landscape layout unusable~~ FIXED (Session 1)
+**Fixed in:** `App.tsx` — `mobileLandscapeGame` branch added with full-screen canvas
+and absolute-positioned overlay controls. `isLandscape` state tracks orientation.
+
 ---
 
-## CRITICAL — OPEN BUGS (INHERITED + VERIFIED)
-
-These were in todo-003 and confirmed present in the audit.
-
-- [ ] **F-A — Game reset is `window.location.reload()`** — confirmed in App.tsx, two
-  locations: mobile game-over overlay and desktop game-over overlay. No `resetGame()`
-  function exists anywhere in the codebase.
-
-- [ ] **F-B — Map generation is unseeded `Math.random()` at module import time** —
-  confirmed in `constants.ts`. `BOG_MAP` is generated at module scope. Every import
-  and every HMR reload in dev produces a different map. Cannot reproduce layouts.
-  `src/utils/` directory does not yet exist.
+## CRITICAL — OPEN BUGS
 
 - [ ] **F-C — Energy system is dead** — `player.energy` initializes to 100 and is never
   decremented or regenerated. HUD energy bar renders correctly but shows a static value.
   The `speedMult` overheat penalty reads `heat`, not `energy` — energy has no game
-  effect whatsoever.
+  effect whatsoever. **Tracked as P2-A.**
 
 - [ ] **F-D — Heat system is dead** — `player.heat` initializes to 0 and is never
   incremented. The overheat speed penalty (`speedMult = 0.3 if heat >= maxHeat`) is
   wired to read heat — this logic is correct — but heat never increases, so the penalty
-  is unreachable.
+  is unreachable. **Tracked as P2-B.**
 
 - [ ] **F-E — GLADIUS skill chain is bypassed** — `player.activeSkill` is initialized
   to `null` and never set. The fire handler reads `ammo` and `cooldowns['shot_cooldown']`
   directly, completely bypassing the 3-step skill_0 chain defined in `GLADIUS.moveset`.
+  **Tracked as P3-A.**
 
 - [ ] **F-F — Enemy routing deadlocks against walls** — Enemies use axis-separated
   collision (`checkCollision` on each axis independently). They do not clip through walls,
   but they have no pathfinding and deadlock against any wall obstacle they approach
   head-on. Concave wall arrangements permanently trap enemies.
-  *(Note: todo-003 described this as "enemies walk through walls" — that is imprecise.
-  The actual bug is absence of routing, not absence of collision.)*
+  **Tracked as P4-A/P4-B.**
 
 - [ ] **F-G — Wurm always spawns in `state: 'chase'`** — `createEnemy()` hardcodes
   `state: 'chase'`. The `'submerged'` / `'emerging'` states are defined in types and
   partially handled in the draw loop, but never initialized by spawn logic.
+  **Tracked as P4-C.**
 
-- [ ] **F-H — Score is not persisted** — `gameState.score` resets on reload. No
-  `localStorage` high score exists.
+- [ ] **F-H — Score is not persisted** — `gameState.score` resets on session restart.
+  No `localStorage` high score exists. **Tracked as P5-A.**
 
 - [ ] **F-I — Settings and Info buttons are inert** — App.tsx has `<button>` elements
-  for Settings and Info in the main menu with no `onClick` handlers.
+  for Settings and Info in the main menu with no `onClick` handlers. Out of scope for
+  alpha.
+
+- [ ] **F-L — FireButton oversized in portrait action bar** — `FireButton.tsx` has
+  `w-24 h-24` (96px) hardcoded. In the portrait layout action bar the wrapper is
+  `40×40` — the button overflows visually. Functionally tappable but cosmetically wrong.
+  **Fix:** Add a `size` prop to `FireButton.tsx` (`'sm' | 'lg'`), pass `size="sm"` in
+  the portrait action bar. Low priority — does not affect gameplay.
 
 ---
 
@@ -175,25 +226,20 @@ reload reflects shots fired). Enemies route around walls. Map is reproducible.
 
 ---
 
-### PHASE 0 — GROUND FLOOR
-*Nothing can be reliably tested until these are done. All other phases depend on them.*
+### PHASE 0 — GROUND FLOOR ✅ COMPLETE
 
-#### P0-A — Seeded map generation + `src/utils/seededRandom.ts`
-- Create `src/utils/seededRandom.ts` — mulberry32 or sfc32 PRNG, seeded by a `number`
-- Replace all `Math.random()` calls in `constants.ts` map generation with the seeded PRNG
-- Expose the seed value (store in `GameState` or a module-level constant for now)
-- **Audit target:** every `Math.random()` call in `constants.ts` — there are multiple
-  (cluster placement, cluster size, cluster type, per-tile noise)
-- **Risk:** ROBUST if all call sites are replaced. FRAGILE if any are missed — one
-  missed call makes the map non-reproducible.
+#### ~~P0-A — Seeded map generation + `src/utils/seededRandom.ts`~~ ✅
+- `src/utils/seededRandom.ts` created — mulberry32, `seededRandom(seed) => () => number`
+- `generateBogMap(seed)` exported from `constants.ts` — pure function, rng scoped per call
+- All four `Math.random()` calls replaced with `rng()`
+- `MAP_SEED = 20260222` exported — change to get different layout
+- `BOG_MAP` generated at module load via `generateBogMap(MAP_SEED)`
 
-#### P0-B — `resetGame()` function
-- Extract all state initialization from `GameCanvas.tsx` into a `resetGame(seed?)` function
-- `resetGame()` must reinitialize: player, enemies, projectiles, score, targetId,
-  isGameOver, exploredTiles, visibleTiles, all cooldowns, frameCount, shakeRef
-- Replace both `window.location.reload()` calls in `App.tsx` game-over screens
-- **Dependency:** P0-A must be done first — `resetGame()` needs to call the seeded
-  map generator or reuse a stored seed
+#### ~~P0-B — `resetGame()` function~~ ✅
+- Implemented via React `key` prop pattern — no changes to `GameCanvas.tsx` required
+- `sessionKey` state in `App.tsx` incremented by `handleRestart()`
+- `<GameCanvas key={sessionKey} />` remounts, reinitializing all refs from their defaults
+- Both game-over RESTART buttons wired to `handleRestart()`
 
 ---
 
@@ -238,10 +284,9 @@ reload reflects shots fired). Enemies route around walls. Map is reproducible.
 - HUD heat bar already renders `player.heat / player.maxHeat` — will update automatically
 - **Dependency:** P1-A
 
-#### P2-C — Fix HUD health display (F-04)
-- Change `{Math.ceil(player.health)}%` to `{Math.ceil((player.health / player.maxHealth) * 100)}%`
-- Apply to both compact and full HUD modes
-- **Dependency:** None — 2-line fix
+#### ~~P2-C — Fix HUD health display (F-04)~~ ✅
+- Fixed in `HUD.tsx` — both compact and full modes
+- Energy and heat labels corrected for consistency in the same pass
 
 ---
 
@@ -254,17 +299,13 @@ reload reflects shots fired). Enemies route around walls. Map is reproducible.
 - Each frame: decrement `activeSkill.timer`; when it reaches 0, advance to next
   `ActionRef` in the sequence; when sequence ends, clear `activeSkill`
 - Fire N projectiles (`shot_count`) when each action activates, not on each frame
-- Interrupting the chain (e.g. stop pressing fire mid-sequence) — design decision needed:
-  **(a)** chain completes regardless (committed fire), or
-  **(b)** chain stops at current action boundary
-  Recommend option (b) for alpha — simpler, cancellable
-- **Dependency:** P1-A, P1-B, P2-A, P2-B (all resource systems live before wiring chain)
+- Interrupting the chain — design decision: recommend option (b) chain stops at current
+  action boundary for alpha — simpler, cancellable
+- **Dependency:** P1-A, P1-B, P2-A, P2-B
 
 #### P3-B — Wire reload to chain completion
-- Under PER_SHOT mode, reload timer should reflect shots fired across the partial or
-  full chain, not just a single burst
-- `shotsFiredSinceReload` already established in P1-B — chain execution increments it
-  correctly if P3-A fires projectiles per action-step
+- `shotsFiredSinceReload` established in P1-B increments correctly if P3-A fires
+  projectiles per action-step
 - **Dependency:** P3-A, P1-B
 
 ---
@@ -273,7 +314,6 @@ reload reflects shots fired). Enemies route around walls. Map is reproducible.
 *Enemies become navigable agents, not wall-magnets.*
 
 #### P4-A — Pathfinding algorithm decision (REQUIRED BEFORE IMPLEMENTATION)
-Three options — pick one:
 
 | Option | Approach | Complexity | Stability |
 |---|---|---|---|
@@ -281,54 +321,50 @@ Three options — pick one:
 | B | Steering + wall-normal repulsion | Low | FRAGILE — empirical tuning required |
 | C | Flow field (precomputed per frame toward player) | Medium-High | ROBUST for dense enemies |
 
-Recommendation: **Option A (A\*)** — the tile grid is already established (`BOG_MAP`,
-`TILE_SIZE`, `MAP_WIDTH/HEIGHT`). A\* on a 60×60 grid with recompute-on-demand per enemy
-is tractable. Path can be cached per enemy for N frames to reduce per-frame cost.
+Recommendation: **Option A (A\*)** — tile grid already established, 60×60 is tractable.
+Path cached per enemy for N frames to limit per-frame cost.
 
 #### P4-B — Implement chosen pathfinding
 - Enemies navigate toward player using path waypoints rather than direct vector
-- Existing `checkCollision` remains as a safety layer for edge cases
-- **Dependency:** P0-A (seeded map so pathfinding can be tested reproducibly), P4-A decision
+- Existing `checkCollision` remains as safety layer
+- **Dependency:** P0-A ✅, P4-A decision
 
 #### P4-C — Wurm submerged spawn
 - In `createEnemy()`, for `type === 'wurm'`: set `state: 'submerged'`, `stateTimer: 120`
-  (2 seconds at 60fps — tunable)
-- After stateTimer expires: transition to `'emerging'` then `'chase'`
-- Draw loop already handles `'submerged'` rendering (ripple effect)
+- Draw loop already handles `'submerged'` rendering
 - **Dependency:** P4-B recommended first
 
 ---
 
 ### PHASE 5 — PERSISTENCE + MINOR FIXES
-*Sessions become meaningful. No blocking dependencies.*
 
 #### P5-A — Score persistence (localStorage high score)
 - On game over: compare `score` to `localStorage.getItem('orion_highscore')`
 - Store higher value. Display on game-over screen.
-- **Dependency:** P0-B (reset must exist so score lifecycle is defined)
+- **Dependency:** P0-B ✅
 
-#### P5-B — Fix external CDN texture (F-06)
-- Download `carbon-fibre.png` to `public/textures/carbon-fibre.png`
-- Update `App.tsx` background URL to `/textures/carbon-fibre.png`
-- **Dependency:** None
+#### ~~P5-B — Fix external CDN texture (F-06)~~ ✅ (code complete, manual step pending)
+- `App.tsx` updated — references `/textures/carbon-fibre.png`
+- **Still required:** download PNG to `public/textures/carbon-fibre.png`
 
-#### P5-C — FireButton mouse events (F-05)
-- Add `onMouseDown`/`onMouseUp` handlers to `FireButton.tsx` alongside existing touch
-  handlers
-- **Dependency:** None
+#### ~~P5-C — FireButton mouse events (F-05)~~ ✅
+- `onMouseDown`, `onMouseUp`, `onMouseLeave` added to `FireButton.tsx`
 
-#### P5-D — Fix Joystick deps array (F-07)
-- Add `onMove` and `onEnd` to `resetTrigger` useEffect dependency array in `Joystick.tsx`
+#### ~~P5-D — Fix Joystick deps array (F-07)~~ ✅
+- `useCallback` wrappers + complete dependency arrays in `Joystick.tsx`
+
+#### P5-E — FireButton size prop (F-L)
+- Add `size?: 'sm' | 'lg'` prop to `FireButton.tsx`
+- `'lg'` = current `w-24 h-24` (default, used in landscape and desktop)
+- `'sm'` = `w-10 h-10`, used in portrait action bar
 - **Dependency:** None
 
 ---
 
 ### PHASE 6 — MOBILE FIRE INTEGRATION
-*Reduce three-input requirement to two.*
 
 #### P6-A — Aim joystick auto-fire threshold
 - If `aimVector` magnitude > threshold (suggest `0.85` — tunable), set `isFiring = true`
-  without requiring the dedicated FireButton
 - Auto-fire off when magnitude drops below threshold
 - **Dependency:** Phase 3 (skill chain) should exist so auto-fire triggers real burst
   behavior, not the legacy single-shot handler
@@ -340,8 +376,8 @@ is tractable. Path can be cached per enemy for N frames to reduce per-frame cost
 **Alpha = Phases 0 through 4 complete.**
 
 Checklist:
-- [ ] Seeded map — same seed produces same map on reset and reload
-- [ ] `resetGame()` — full session restart without page reload
+- [x] Seeded map — same seed produces same map on reset and reload
+- [x] `resetGame()` — full session restart without page reload
 - [ ] GLADIUS fires 3-round bursts (`shot_count: 3`)
 - [ ] Reload reflects shots fired (PER_SHOT mode)
 - [ ] Manual reload (R key) works
@@ -350,8 +386,8 @@ Checklist:
 - [ ] GLADIUS skill_0 chain executes in sequence (3 bursts before reload)
 - [ ] Enemies route around walls (no deadlocking)
 - [ ] Wurm initializes in submerged state
-- [ ] Multiple sessions per browser visit work correctly
-- [ ] HUD health display shows correct percentage
+- [x] Multiple sessions per browser visit work correctly
+- [x] HUD health display shows correct percentage
 
 Phase 5 (persistence + minor fixes) and Phase 6 (mobile threshold) are
 not blocking for alpha but should ship with or shortly after.
@@ -371,7 +407,7 @@ Do not allow these to creep into the alpha milestone:
 - Sound effects
 - Particle effects (projectile impacts, death)
 - Animated player sprite
-- Main menu Settings / Info functionality
+- Main menu Settings / Info functionality (F-I)
 - PWA update prompt
 - Desktop control hints overlay
 
@@ -380,11 +416,11 @@ Do not allow these to creep into the alpha milestone:
 ## DEPENDENCY GRAPH (ALPHA PATH)
 
 ```
-P0-A (seeded map)
-  └── P0-B (resetGame)
+P0-A ✅ (seeded map)
+  └── P0-B ✅ (resetGame)
         └── P5-A (score persistence)
 
-P1-A (burst shot_count)
+P1-A (burst shot_count)          ← NEXT
   └── P1-B (PER_SHOT reload)
         └── P1-C (R key reload)
   └── P2-A (energy)
@@ -392,12 +428,13 @@ P1-A (burst shot_count)
         └── P3-A (skill chain)
               └── P3-B (chain reload)
 
-P0-A
+P0-A ✅
   └── P4-B (pathfinding)
         └── P4-C (wurm submerged)
 ```
 
-P2-C, P5-B, P5-C, P5-D — no dependencies, can be done anytime.
+P2-C ✅, P5-B ✅, P5-C ✅, P5-D ✅ — complete.
+P5-E (FireButton size prop) — no dependencies, can be done anytime.
 
 ---
 
