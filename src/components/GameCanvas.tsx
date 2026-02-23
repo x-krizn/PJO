@@ -119,14 +119,12 @@ export const GameCanvas: React.FC<{
   const moveVectorRef = useRef<Vector2 | undefined>(moveVector);
   const aimVectorRef = useRef<Vector2 | undefined>(aimVector);
   const isFiringRef = useRef<boolean | undefined>(isFiring);
-  // CSS scale factor so canvas fills its container without changing internal resolution
   const [scale, setScale] = useState(1);
 
   useEffect(() => { moveVectorRef.current = moveVector; }, [moveVector]);
   useEffect(() => { aimVectorRef.current = aimVector; }, [aimVector]);
   useEffect(() => { isFiringRef.current = isFiring; }, [isFiring]);
 
-  // Resize observer: scale canvas CSS to fill wrapper while preserving aspect ratio
   useEffect(() => {
     const wrapper = wrapperRef.current;
     if (!wrapper) return;
@@ -159,6 +157,15 @@ export const GameCanvas: React.FC<{
   const frameCountRef = useRef(0);
   const shakeRef = useRef(0);
   const cameraRef = useRef<Vector2>({ x: 0, y: 0 });
+
+  // P1-B: tracks projectiles fired since last reload for PER_SHOT reload time calculation.
+  // Inline ref — avoids adding to Player type before P3-A skill chain is implemented.
+  // Reset to 0 on reload completion and on session reset (remount clears all refs).
+  const shotsFiredRef = useRef(0);
+
+  // P1-C: prevents a held R key from re-triggering reload every frame.
+  // Set true when reload is triggered, cleared when KeyR leaves keysRef.
+  const rKeyProcessedRef = useRef(false);
 
   const hasLOS = (x1: number, y1: number, x2: number, y2: number) => {
     const dx = x2 - x1;
@@ -223,6 +230,7 @@ export const GameCanvas: React.FC<{
       frameCountRef.current++;
       if (shakeRef.current > 0) shakeRef.current -= 0.5;
 
+      // ── Cooldown tick ──────────────────────────────────────────────────────
       Object.keys(state.player.cooldowns).forEach(id => {
         const cd = state.player.cooldowns[id];
         cd.remaining -= dt;
@@ -230,12 +238,27 @@ export const GameCanvas: React.FC<{
           delete state.player.cooldowns[id];
           if (id.startsWith('reload_')) {
             state.player.ammo = state.player.weapons[state.player.activeWeaponIndex].reload_cooldown.max_shots;
+            // P1-B: reset shot counter when reload completes
+            shotsFiredRef.current = 0;
           }
         }
       });
 
       if (state.player.weaponSwapCooldown > 0) state.player.weaponSwapCooldown -= dt;
 
+      // ── P2-A: Passive energy regen ─────────────────────────────────────────
+      // +2 energy/sec. Tunable constant.
+      state.player.energy = Math.min(
+        state.player.maxEnergy,
+        state.player.energy + 2 * dt
+      );
+
+      // ── P2-B: Passive heat cooling ─────────────────────────────────────────
+      // −5 heat/sec. Applied every frame — fire events add heat to oppose this.
+      // Tunable constant.
+      state.player.heat = Math.max(0, state.player.heat - 5 * dt);
+
+      // ── Movement ───────────────────────────────────────────────────────────
       let moveX = (keysRef.current.has('KeyD') ? 1 : 0) - (keysRef.current.has('KeyA') ? 1 : 0);
       let moveY = (keysRef.current.has('KeyS') ? 1 : 0) - (keysRef.current.has('KeyW') ? 1 : 0);
       const speedMult = state.player.heat >= state.player.maxHeat ? 0.3 : 1.0;
@@ -266,6 +289,7 @@ export const GameCanvas: React.FC<{
       cameraRef.current.x = state.player.position.x - CANVAS_WIDTH / 2;
       cameraRef.current.y = state.player.position.y - CANVAS_HEIGHT / 2;
 
+      // ── Fog of war update ──────────────────────────────────────────────────
       state.visibleTiles.clear();
       const ptx = Math.floor(state.player.position.x / TILE_SIZE);
       const pty = Math.floor(state.player.position.y / TILE_SIZE);
@@ -289,7 +313,7 @@ export const GameCanvas: React.FC<{
         }
       }
 
-      // Aim
+      // ── Aim ────────────────────────────────────────────────────────────────
       if (aimVectorRef.current && (Math.abs(aimVectorRef.current.x) > 0.1 || Math.abs(aimVectorRef.current.y) > 0.1)) {
         state.player.aimRotation = Math.atan2(aimVectorRef.current.y, aimVectorRef.current.x);
       } else {
@@ -299,7 +323,7 @@ export const GameCanvas: React.FC<{
         );
       }
 
-      // Auto-lock
+      // ── Auto-lock ──────────────────────────────────────────────────────────
       if (!state.targetId) {
         let closestDist = AUTO_LOCK_RANGE;
         let closestId: string | null = null;
@@ -318,33 +342,110 @@ export const GameCanvas: React.FC<{
         if (!target) state.targetId = null;
       }
 
-      // Firing
-      const isFiringNow = isFiringRef.current || keysRef.current.has('Mouse0') || keysRef.current.has('Space');
-      if (isFiringNow && state.player.ammo > 0 && !state.player.cooldowns['reload_gladius']) {
-        const weapon = state.player.weapons[state.player.activeWeaponIndex];
-        const shotCooldownId = 'shot_cooldown';
-        if (!state.player.cooldowns[shotCooldownId]) {
-          const aimAngle = state.player.aimRotation;
-          state.projectiles.push({
-            id: `proj-${Date.now()}-${Math.random()}`,
-            position: { ...state.player.position },
-            velocity: { x: Math.cos(aimAngle) * PROJECTILE_SPEED, y: Math.sin(aimAngle) * PROJECTILE_SPEED },
-            damage: 50,
-            ownerId: 'player',
-            lifeTime: PROJECTILE_LIFETIME,
-          });
-          state.player.ammo--;
-          state.player.cooldowns[shotCooldownId] = { id: shotCooldownId, remaining: 0.15, total: 0.15 };
-          if (state.player.ammo <= 0) {
-            const reloadTime = weapon.reload_cooldown.max_shots * weapon.reload_cooldown.scalar;
+      // ── P1-C: Manual reload (R key) ────────────────────────────────────────
+      // One-shot per keypress — rKeyProcessedRef prevents re-trigger on hold.
+      // PER_SHOT mode: reload time scales with shots fired since last reload.
+      // Falls back to full reload time if shotsFiredRef is 0 (shouldn't happen
+      // if ammo < max, but guards against edge cases).
+      const weapon = state.player.weapons[state.player.activeWeaponIndex];
+      if (keysRef.current.has('KeyR')) {
+        if (!rKeyProcessedRef.current) {
+          rKeyProcessedRef.current = true;
+          const alreadyReloading = !!state.player.cooldowns[weapon.reload_cooldown.id];
+          const needsReload = state.player.ammo < weapon.reload_cooldown.max_shots;
+          if (!alreadyReloading && needsReload) {
+            const shots = shotsFiredRef.current > 0
+              ? shotsFiredRef.current
+              : weapon.reload_cooldown.max_shots;
+            const reloadTime = shots * weapon.reload_cooldown.scalar;
             state.player.cooldowns[weapon.reload_cooldown.id] = {
               id: weapon.reload_cooldown.id, remaining: reloadTime, total: reloadTime
             };
           }
         }
+      } else {
+        // Key released — clear guard so next press is processed
+        rKeyProcessedRef.current = false;
       }
 
-      // Projectile movement
+      // ── P1-A / P1-B / P2-A / P2-B: Fire handler ───────────────────────────
+      // Reads shot_count from weapon library payload (fixes F-01).
+      // Spawns N projectiles with angular spread.
+      // Decrements ammo by shot_count.
+      // Reload time scales with shots fired (fixes F-02, PER_SHOT mode).
+      // Energy and heat updated per projectile (connects F-C and F-D systems).
+      const isFiringNow = isFiringRef.current || keysRef.current.has('Mouse0') || keysRef.current.has('Space');
+
+      if (isFiringNow && !state.player.cooldowns[weapon.reload_cooldown.id]) {
+        const shotCooldownId = 'shot_cooldown';
+        if (!state.player.cooldowns[shotCooldownId]) {
+
+          // P1-A: resolve shot_count from the active weapon's burst action
+          const burstAction = weapon.library?.actions.find(a => a.type === ActionType.BURST);
+          const shotCount = burstAction
+            ? (burstAction.payload as BurstPayload).shot_count
+            : 1;
+
+          // Gate: require sufficient ammo for a full burst — prevents partial spawns
+          // and keeps ammo always a clean multiple of shot_count.
+          // P2-A: gate on energy — cannot fire with 0 energy
+          const canFire = state.player.ammo >= shotCount && state.player.energy > 0;
+
+          if (canFire) {
+            const aimAngle = state.player.aimRotation;
+            // P1-A: angular spread across N shots.
+            // spread = 0.08 rad (~4.6°) total arc, evenly divided.
+            // Tunable: increase for wider scatter, 0 for tight group.
+            const spreadTotal = 0.08;
+            const spreadStep = shotCount > 1 ? spreadTotal / (shotCount - 1) : 0;
+            const spreadOffset = shotCount > 1 ? -spreadTotal / 2 : 0;
+
+            for (let s = 0; s < shotCount; s++) {
+              const angle = aimAngle + spreadOffset + s * spreadStep;
+              state.projectiles.push({
+                id: `proj-${Date.now()}-${s}`,
+                position: { ...state.player.position },
+                velocity: {
+                  x: Math.cos(angle) * PROJECTILE_SPEED,
+                  y: Math.sin(angle) * PROJECTILE_SPEED,
+                },
+                damage: 50,
+                ownerId: 'player',
+                lifeTime: PROJECTILE_LIFETIME,
+              });
+
+              // P2-A: −5 energy per projectile. Tunable constant.
+              state.player.energy = Math.max(0, state.player.energy - 5);
+
+              // P2-B: +8 heat per projectile. Tunable constant.
+              // Overheat speed penalty (heat >= maxHeat → speedMult 0.3) already
+              // wired in movement section above — will now activate correctly.
+              state.player.heat = Math.min(state.player.maxHeat, state.player.heat + 8);
+            }
+
+            // P1-A: decrement by full burst count
+            state.player.ammo -= shotCount;
+
+            // P1-B: track shots fired for PER_SHOT reload time
+            shotsFiredRef.current += shotCount;
+
+            // Shot cooldown — controls burst repeat rate (unchanged: 0.15s)
+            state.player.cooldowns[shotCooldownId] = {
+              id: shotCooldownId, remaining: 0.15, total: 0.15
+            };
+
+            // P1-B: auto-reload on empty mag using PER_SHOT time
+            if (state.player.ammo <= 0) {
+              const reloadTime = shotsFiredRef.current * weapon.reload_cooldown.scalar;
+              state.player.cooldowns[weapon.reload_cooldown.id] = {
+                id: weapon.reload_cooldown.id, remaining: reloadTime, total: reloadTime
+              };
+            }
+          }
+        }
+      }
+
+      // ── Projectile movement ────────────────────────────────────────────────
       state.projectiles = state.projectiles.filter(p => {
         p.position.x += p.velocity.x;
         p.position.y += p.velocity.y;
@@ -355,12 +456,12 @@ export const GameCanvas: React.FC<{
         return p.lifeTime > 0;
       });
 
-      // Enemy spawn
+      // ── Enemy spawn ────────────────────────────────────────────────────────
       if (frameCountRef.current % ENEMY_SPAWN_RATE === 0 && state.enemies.length < 10) {
         state.enemies.push(createEnemy(`enemy-${Date.now()}`, state.player.position));
       }
 
-      // Enemy update
+      // ── Enemy update ───────────────────────────────────────────────────────
       state.enemies.forEach(enemy => {
         if (enemy.stateTimer && enemy.stateTimer > 0) enemy.stateTimer--;
         const stats = enemy.type === 'warrior' ? ENEMY_STATS.WARRIOR : enemy.type === 'scout' ? ENEMY_STATS.SCOUT : ENEMY_STATS.WURM;
@@ -403,7 +504,7 @@ export const GameCanvas: React.FC<{
         if (state.player.health <= 0) state.isGameOver = true;
       });
 
-      // Projectile collision
+      // ── Projectile collision ───────────────────────────────────────────────
       state.projectiles = state.projectiles.filter(p => {
         if (p.ownerId === 'player') {
           let hit = false;
@@ -569,14 +670,12 @@ export const GameCanvas: React.FC<{
   }, [onStateUpdate, scale]);
 
   return (
-    // Wrapper fills its parent completely
     <div ref={wrapperRef} style={{ width: '100%', height: '100%', overflow: 'hidden', background: '#080c08', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       <canvas
         ref={canvasRef}
         width={CANVAS_WIDTH}
         height={CANVAS_HEIGHT}
         style={{
-          // Scale canvas to fill container using CSS transform — internal resolution stays 1200×800
           transform: `scale(${scale})`,
           transformOrigin: 'center center',
           imageRendering: 'pixelated',
